@@ -98,3 +98,42 @@ class TestPlayerContainers:
 
     def test_has_essential_container(self, player_o):
         assert player_o.essential_container is not None
+
+
+class TestMovementSpeedStatus:
+    """Issue #279/#272: 移動速度アップ 在 Player.status_point_list 中引发 KeyError。"""
+
+    def test_movement_speed_in_status_point_list(self, player_o):
+        """读取包含 移動速度アップ 的状态点列表不应抛出 KeyError。"""
+        save_param = player_o._save_parameter
+        status_list = PalObjects.get_array_property(
+            save_param["GotStatusPointList"]
+        )
+        # 注入玩家特有的 移動速度アップ 条目（模拟力量石像升级后的存档）
+        status_list.append(
+            PalObjects.StatusPointStruct("移動速度アップ", 500)
+        )
+
+        # 修复前此处抛出 KeyError('移動速度アップ')
+        result = player_o.status_point_list
+        assert "move_speed" in result
+        assert result["move_speed"] == 500
+
+    def test_movement_speed_round_trips(self, player_o):
+        """setter 应保留/回写 移動速度アップ 字段。"""
+        save_param = player_o._save_parameter
+        status_list = PalObjects.get_array_property(
+            save_param["GotStatusPointList"]
+        )
+        status_list.append(
+            PalObjects.StatusPointStruct("移動速度アップ", 500)
+        )
+
+        # 读取 → 修改 → 回写
+        points = player_o.status_point_list
+        points["move_speed"] = 999
+        player_o.status_point_list = points
+
+        # 验证回写后值仍可读取
+        result = player_o.status_point_list
+        assert result["move_speed"] == 999

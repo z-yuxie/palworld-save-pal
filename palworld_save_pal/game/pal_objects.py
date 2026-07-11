@@ -390,6 +390,7 @@ class PalObjects:
         "所持重量": "weight",
         "捕獲率": "capture_rate",
         "作業速度": "work_speed",
+        "移動速度アップ": "move_speed",  # 玩家力量石像升级专属（非帕鲁状态）
     }
 
     ExStatusNames = [
