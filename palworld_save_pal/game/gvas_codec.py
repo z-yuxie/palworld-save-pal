@@ -34,9 +34,10 @@ def _make_eof_safe_decode(fn, label):
 
 
 def _install_eof_safe_wrappers():
-    """幂等地在两个 map concrete model 解码器上安装 EOF 安全包装器。"""
+    """幂等地在 map object、module 及 group 解码器上安装 EOF 安全包装器。"""
     import palworld_save_tools.rawdata.map_concrete_model as _mcm
     import palworld_save_tools.rawdata.map_concrete_model_module as _mcmm
+    import palworld_save_tools.rawdata.group as _group
 
     if not getattr(_mcm.decode_bytes, "_palworld_save_pal_eof_safe_v1", False):
         _mcm.decode_bytes = _make_eof_safe_decode(_mcm.decode_bytes, "map object")
@@ -45,6 +46,10 @@ def _install_eof_safe_wrappers():
     if not getattr(_mcmm.decode_bytes, "_palworld_save_pal_eof_safe_v1", False):
         _mcmm.decode_bytes = _make_eof_safe_decode(_mcmm.decode_bytes, "module")
         _mcmm.decode_bytes._palworld_save_pal_eof_safe_v1 = True  # type: ignore[attr-defined]
+
+    if not getattr(_group.decode_bytes, "_palworld_save_pal_eof_safe_v1", False):
+        _group.decode_bytes = _make_eof_safe_decode(_group.decode_bytes, "group")
+        _group.decode_bytes._palworld_save_pal_eof_safe_v1 = True  # type: ignore[attr-defined]
 
 
 
