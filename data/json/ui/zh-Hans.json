@@ -214,7 +214,7 @@
   "element_types": "元素类型",
   "elemental_distribution": "元素分布",
   "empty": "空的",
-  "enter_item_count": "输入商品数量",
+  "enter_item_count": "输入物品数量",
   "enter_name_for_entity": "请输入新{entity}的名称：",
   "enter_new_name_for_entity": "请输入{entity}的新名称：",
   "enter_tag_name": "输入标签名称",
@@ -260,7 +260,7 @@
   "fill": "充满",
   "fill_container": "填充容器",
   "fill_current_entity": "填充当前{entity}",
-  "fill_entity": "填写{entity}",
+  "fill_entity": "填充{entity}",
   "filter": [
     {
       "declarations": [
@@ -335,7 +335,7 @@
   "in_inventory": "库存",
   "info": "信息",
   "invalid_option_selected": "选择了无效选项。",
-  "inventory": "存货",
+  "inventory": "背包",
   "item": [
     {
       "declarations": [
