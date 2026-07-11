@@ -1,5 +1,6 @@
 import base64
 import copy
+import logging
 
 import pytest
 from palworld_save_tools.archive import FArchiveReader, FArchiveWriter
@@ -279,3 +280,79 @@ class TestGroupLocalCodec:
         fn_second = mcm.decode_bytes
 
         assert fn_first is fn_second
+
+
+class TestEofLogDeduplication:
+    """EOF 回退日志去重：有界缓存、不可哈希安全、防刷屏。"""
+
+    @staticmethod
+    def _fake_eof_decoder(_reader, m_bytes, _entity_id):
+        raise Exception("Warning: EOF not reached – extra 8 bytes")
+
+    @staticmethod
+    def _parent_reader():
+        from palworld_save_tools.archive import FArchiveReader
+        return FArchiveReader(b"\x00")
+
+    # ── 同键只日志一次 ──
+    def test_same_key_logged_only_once(self, caplog):
+        from palworld_save_pal.game.gvas_codec import (
+            _make_eof_safe_decode,
+            _log_eof_once,
+        )
+
+        _log_eof_once.cache_clear()
+        wrapped = _make_eof_safe_decode(self._fake_eof_decoder, "map object")
+
+        caplog.set_level(logging.DEBUG)
+        for _ in range(5):
+            wrapped(self._parent_reader(), [0xAA] * 20, "shrine_lantern")
+
+        eof_lines = [
+            r for r in caplog.record_tuples
+            if "EOF" in r[2]
+        ]
+        assert len(eof_lines) == 1, (
+            f"Expected 1 EOF log line for same key, got {len(eof_lines)}"
+        )
+
+    # ── 不可哈希 entity_id 不抛异常 ──
+    def test_unhashable_entity_id_no_crash(self, caplog):
+        from palworld_save_pal.game.gvas_codec import (
+            _make_eof_safe_decode,
+            _log_eof_once,
+        )
+
+        _log_eof_once.cache_clear()
+        wrapped = _make_eof_safe_decode(self._fake_eof_decoder, "module")
+
+        caplog.set_level(logging.DEBUG)
+        # dict 是不可哈希的 – 不应该因为 set.add(dict) 而崩溃
+        result = wrapped(
+            self._parent_reader(),
+            [0xBB] * 12,
+            {"nested": "dict"},
+        )
+
+        assert result == {"values": bytes([0xBB] * 12)}
+
+    # ── 大量不同键后缓存大小有界 ──
+    def test_cache_size_bounded_after_many_keys(self, caplog):
+        from palworld_save_pal.game.gvas_codec import (
+            _make_eof_safe_decode,
+            _log_eof_once,
+        )
+
+        _log_eof_once.cache_clear()
+        wrapped = _make_eof_safe_decode(self._fake_eof_decoder, "map object")
+
+        caplog.set_level(logging.DEBUG)
+        # 注入 300 个不同键
+        for i in range(300):
+            wrapped(self._parent_reader(), [0xCC] * 8, f"entity_{i}")
+
+        cache_info = _log_eof_once.cache_info()
+        # lru_cache 大小上限为 256，实际条目数不会超过该值
+        assert cache_info.currsize <= 256, (
+            f"Cache size {cache_info.currsize} > 256, unbounded growth detected"
+        )

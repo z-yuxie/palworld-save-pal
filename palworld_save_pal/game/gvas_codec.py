@@ -1,13 +1,18 @@
 import base64
+import functools
 import logging
 import re
-from functools import wraps
 from enum import Enum
-
-
 _logger = logging.getLogger(__name__)
 
-_eof_logged: set[tuple[str, object]] = set()
+
+@functools.lru_cache(maxsize=256)
+def _log_eof_once(label: str, entity_id_repr: str) -> None:
+    _logger.debug(
+        "保留 %s %r 的原始字节（EOF 未到达）",
+        label,
+        entity_id_repr,
+    )
 
 
 def _make_eof_safe_decode(fn, label):
@@ -18,20 +23,17 @@ def _make_eof_safe_decode(fn, label):
     此包装器拦截该异常并保留原始字节，确保回写时逐位一致。
     """
 
-    @wraps(fn)
+    @functools.wraps(fn)
     def _wrapper(parent_reader, m_bytes, entity_id):
         try:
             return fn(parent_reader, m_bytes, entity_id)
         except Exception as exc:
             if str(exc).startswith("Warning: EOF not reached"):
-                key = (label, entity_id)
-                if key not in _eof_logged:
-                    _eof_logged.add(key)
-                    _logger.debug(
-                        "保留 %s %r 的原始字节（EOF 未到达）",
-                        label,
-                        entity_id,
-                    )
+                try:
+                    key = repr(entity_id)
+                except Exception:
+                    key = "<unrepresentable>"
+                _log_eof_once(label, key)
                 return {"values": _ensure_bytes(m_bytes)}
             raise
 
