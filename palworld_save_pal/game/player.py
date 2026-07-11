@@ -242,12 +242,13 @@ class Player(BaseModel):
         status_point_list = PalObjects.get_array_property(
             self._save_parameter["GotStatusPointList"]
         )
-        for item in status_point_list:
-            if (
+        status_point_list[:] = [
+            item for item in status_point_list
+            if not (
                 "StatusName" not in item
                 or PalObjects.get_value(item["StatusName"]) == "None"
-            ):
-                status_point_list.remove(item)
+            )
+        ]
         reverse_status_map = {v: k for k, v in PalObjects.StatusNameMap.items()}
         for status_name, point_value in value.items():
             japanese_name = reverse_status_map.get(status_name)

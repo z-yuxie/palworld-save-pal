@@ -201,3 +201,57 @@ class TestUnknownStatusNames:
         ]
         assert len(unknown_items) == 1
         assert PalObjects.get_value(unknown_items[0]["StatusPoint"]) == 777
+
+
+class TestStatusCleanup:
+    """Issue #9c7835fa: setter 遍历时修改列表导致连续无效条目漏删。"""
+
+    def test_consecutive_invalid_entries_all_removed(self, player_o):
+        """注入连续两个 StatusName=None 条目后调用 setter，两者均应被移除。"""
+        save_param = player_o._save_parameter
+        status_list = PalObjects.get_array_property(
+            save_param["GotStatusPointList"]
+        )
+
+        # 注入两个连续的 StatusName="None" 条目（应被清除）
+        none_entry_1 = {
+            "StatusName": PalObjects.NameProperty("None"),
+            "StatusPoint": PalObjects.IntProperty(1),
+        }
+        none_entry_2 = {
+            "StatusName": PalObjects.NameProperty("None"),
+            "StatusPoint": PalObjects.IntProperty(2),
+        }
+        status_list.append(none_entry_1)
+        status_list.append(none_entry_2)
+
+        # 注入一个未知但非None的状态条目（应保留）
+        unknown = PalObjects.StatusPointStruct("未知のステータス", 777)
+        status_list.append(unknown)
+
+        # 通过 setter 触发清理
+        points = player_o.status_point_list
+        points["max_hp"] = 9999
+        player_o.status_point_list = points
+
+        # 验证两个 invalid 条目都被移除
+        raw_list = PalObjects.get_array_property(
+            save_param["GotStatusPointList"]
+        )
+        none_items = [
+            item for item in raw_list
+            if PalObjects.get_value(item.get("StatusName", {})) == "None"
+        ]
+        assert len(none_items) == 0, f"应移除全部 None 条目，剩余 {len(none_items)} 个"
+
+        # 验证未知条目仍在
+        unknown_items = [
+            item for item in raw_list
+            if PalObjects.get_value(item.get("StatusName", {})) == "未知のステータス"
+        ]
+        assert len(unknown_items) == 1
+        assert PalObjects.get_value(unknown_items[0]["StatusPoint"]) == 777
+
+        # 验证已知键值正确
+        result = player_o.status_point_list
+        assert result["max_hp"] == 9999
