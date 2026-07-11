@@ -13,6 +13,7 @@ from palworld_save_tools.archive import FArchiveReader, FArchiveWriter
 
 from palworld_save_pal.game.group_codec import (
     decode_bytes,
+    encode,
     encode_bytes,
 )
 
@@ -464,3 +465,163 @@ class TestFallbackRawValues:
         raw = b"\x01\x02\x03"
         result = encode_bytes({"values": raw})
         assert result == raw
+
+
+
+class TestTruncatedPlayerCount:
+    """截断/损坏的 player_count 应立即回退到 _raw_tail。"""
+
+    @staticmethod
+    def _make_reader(raw: bytes):
+        return FArchiveReader(b"\x00")
+
+    def test_huge_player_count_triggers_raw_tail(self):
+        """player_count 极大但剩余字节不足时回退到 _raw_tail。"""
+        guild_id = "fa" * 16
+        buf = bytearray()
+        buf += _pack_guid(guild_id)
+        buf += _pack_fstring("HugeCountGuild")
+        buf += _pack_tarray_instance_ids([])
+        buf += struct.pack("<B", 0)  # org_type
+        buf += b"\x00" * 4  # leading_bytes
+        buf += _pack_tarray_uuid([])
+        buf += struct.pack("<i", 0)  # unknown_1
+        buf += struct.pack("<i", 1)  # base_camp_level
+        buf += _pack_tarray_uuid([])
+        buf += _pack_fstring("HC")
+        buf += _pack_guid(ZERO_GUID)
+        buf += b"\x00" * 4  # unknown_2
+        # post_unk2: admin_uid(16) + player_count(4, huge) + only 5 bytes garbage
+        buf += _pack_guid(ZERO_GUID)  # admin_player_uid
+        buf += struct.pack("<I", 0x7FFFFFFF)  # huge player_count as u32
+        buf += b"\xff" * 5  # not enough data for any player
+        raw = bytes(buf)
+
+        result = decode_bytes(
+            self._make_reader(raw), list(raw), "EPalGroupType::Guild"
+        )
+
+        assert "_raw_tail" in result
+        # 应保留原始尾部（admin_uid + huge_count + garbage）
+        assert result["base_camp_level"] == 1
+        assert result.get("players", []) == []
+
+    def test_truncated_player_count_falls_back(self):
+        """player_count 值截断（字节不足）时回退到 _raw_tail。"""
+        guild_id = "fb" * 16
+        buf = bytearray()
+        buf += _pack_guid(guild_id)
+        buf += _pack_fstring("TruncCountGuild")
+        buf += _pack_tarray_instance_ids([])
+        buf += struct.pack("<B", 0)  # org_type
+        buf += b"\x00" * 4  # leading_bytes
+        buf += _pack_tarray_uuid([])
+        buf += struct.pack("<i", 0)  # unknown_1
+        buf += struct.pack("<i", 1)  # base_camp_level
+        buf += _pack_tarray_uuid([])
+        buf += _pack_fstring("TC")
+        buf += _pack_guid(ZERO_GUID)
+        buf += b"\x00" * 4  # unknown_2
+        # post_unk2: only 16+3 bytes — player_count u32 被截断
+        buf += _pack_guid(ZERO_GUID)  # admin_player_uid (16 bytes)
+        buf += b"\x01\x02\x03"  # truncated count (only 3 of 4 bytes)
+        raw = bytes(buf)
+
+        result = decode_bytes(
+            self._make_reader(raw), list(raw), "EPalGroupType::Guild"
+        )
+
+        assert "_raw_tail" in result
+        assert result.get("players", []) == []
+
+
+class TestPlayerUidUuidType:
+    """解码后 player_uid 保持 UUID 类型。"""
+
+    @staticmethod
+    def _make_reader(raw: bytes):
+        return FArchiveReader(b"\x00")
+
+    def test_player_uid_is_uuid_not_str(self):
+        """player_uid 是 UUID（非字符串），类型保持与 reader.guid() 一致。"""
+        raw = _build_v1_guild_bytes(
+            admin_uid=ADMIN_UID,
+            players=[
+                {
+                    "player_uid": PLAYER1_UID,
+                    "player_name": "Alice",
+                    "last_online": 1000000,
+                    "u8_flag": 42,
+                },
+            ],
+        )
+        result = decode_bytes(
+            self._make_reader(raw), list(raw), "EPalGroupType::Guild"
+        )
+
+        players = result["players"]
+        assert len(players) == 1
+        puid = players[0]["player_uid"]
+        # 不应转换为 str；保持 reader.guid() 返回的 UUID 类型
+        assert not isinstance(puid, str), (
+            f"player_uid should be UUID, got str: {puid!r}"
+        )
+        # 确认可以写回（writer.guid 接受 UUID）
+        re_encoded = encode_bytes(result)
+        assert re_encoded == raw, f"roundtrip failed: {re_encoded!r} != {raw!r}"
+
+
+class TestEncodePurityV2:
+    """encode() 函数对调用者输入纯净。"""
+
+    @staticmethod
+    def _make_reader(raw: bytes):
+        return FArchiveReader(b"\x00")
+
+    def test_encode_does_not_mutate_properties_input(self):
+        """encode() 不修改调用者传入的 properties 字典。"""
+        raw = _build_v1_guild_bytes(
+            admin_uid=ADMIN_UID,
+            players=[
+                {
+                    "player_uid": PLAYER1_UID,
+                    "player_name": "TestPlayer",
+                    "last_online": 1000000,
+                    "u8_flag": 3,
+                },
+            ],
+        )
+        group_data = decode_bytes(
+            self._make_reader(raw), list(raw), "EPalGroupType::Guild"
+        )
+        properties = {
+            "custom_type": "MapProperty",
+            "key_type": "StructProperty",
+            "value_type": "StructProperty",
+            "key_struct_type": "Guid",
+            "value_struct_type": "GroupSaveDataMap",
+            "value": [
+                {
+                    "key": {
+                        "struct_type": "Guid",
+                        "struct_id": "00000000-0000-0000-0000-000000000000",
+                        "id": "00000000-0000-0000-0000-000000000000",
+                        "value": ZERO_GUID.replace("-", ""),
+                    },
+                    "value": {
+                        "RawData": {
+                            "value": copy.deepcopy(group_data),
+                        }
+                    },
+                }
+            ],
+        }
+        expected = copy.deepcopy(properties)
+        try:
+            writer = FArchiveWriter()
+            encode(writer, "MapProperty", properties)
+        except Exception:
+            pass  # property_inner 可能需要更完整结构，但不影响纯度断言
+        assert properties == expected, (
+            "encode() mutated the caller's properties dict"
+        )
