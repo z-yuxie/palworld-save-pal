@@ -3,20 +3,37 @@ import { deepCopy } from './deep-copy';
 
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 
+/** 深拷贝槽位数组（每个槽位独立，含 dynamic_item）。 */
+function cloneSlots(slots: readonly ItemContainerSlot[]): ItemContainerSlot[] {
+	return slots.map((slot) => {
+		const result: ItemContainerSlot = { ...slot };
+		if (slot.dynamic_item) {
+			result.dynamic_item = deepCopy(slot.dynamic_item);
+		}
+		return result;
+	});
+}
+
 /**
  * 按选中顺序扁平化预设的 storage_container.slots，
  * 自动过滤 static_id === 'None' 的空槽。
  * 跳过没有 storage_container 的预设。
+ * 返回的每个槽位都是深拷贝，修改不会污染预设模板。
  */
 export function flattenStoragePresetSlots(
 	presets: readonly PresetProfile[]
 ): readonly ItemContainerSlot[] {
 	const slots: ItemContainerSlot[] = [];
 	for (const preset of presets) {
-		if (!preset.storage_container) continue;
-		for (const ps of preset.storage_container.slots) {
+		const sc = preset.storage_container;
+		if (!sc) continue;
+		for (const ps of sc.slots ?? []) {
 			if (ps.static_id !== 'None') {
-				slots.push(ps);
+				const cloned: ItemContainerSlot = { ...ps };
+				if (ps.dynamic_item) {
+					cloned.dynamic_item = deepCopy(ps.dynamic_item);
+				}
+				slots.push(cloned);
 			}
 		}
 	}
@@ -44,7 +61,8 @@ export function isStoragePresetCompatible(
 	if (containerKey === presetKey || containerKey === '*' || presetKey === '*') return true;
 
 	// 跨 key：统计预设中非空物品数
-	const nonEmptyCount = sc.slots.filter((s) => s.static_id !== 'None').length;
+	const presetSlots = sc.slots ?? [];
+	const nonEmptyCount = presetSlots.filter((s) => s.static_id !== 'None').length;
 	return nonEmptyCount <= container.slots.length;
 }
 
@@ -53,13 +71,14 @@ export function isStoragePresetCompatible(
  * - 保留目标槽位的 slot_index 和元数据
  * - 动态物品 deepCopy 且 local_id 归零
  * - 不修改 target 和 presets 输入
- * - 返回新数组
+ * - 返回新数组（即使 presets 为空也返回独立副本）
  */
 export function applyStoragePresets(
 	target: readonly ItemContainerSlot[],
 	presets: readonly PresetProfile[]
 ): ItemContainerSlot[] {
 	const flatSlots = flattenStoragePresetSlots(presets);
+	if (flatSlots.length === 0) return cloneSlots(target);
 
 	return target.map((slot, idx) => {
 		if (idx < flatSlots.length) {
@@ -76,18 +95,17 @@ export function applyStoragePresets(
 				dynamic_item
 			};
 		}
-		// 余槽清空
 		return { ...slot, static_id: 'None', count: 0, dynamic_item: undefined };
 	});
 }
 
 /**
  * Append 模式：将预设物品按顺序填入目标容器中原本为空的槽位（static_id === 'None'）。
- * - 已有物品的槽位完全保留
+ * - 已有物品的槽位完全保留（深拷贝，包括 dynamic_item，与 target 独立）
  * - 溢出截断
  * - 动态物品 deepCopy 且 local_id 归零
  * - 不修改 target 和 presets 输入
- * - 返回新数组
+ * - 返回新数组（即使 presets 为空也返回独立副本）
  */
 export function appendStoragePresets(
 	target: readonly ItemContainerSlot[],
@@ -95,7 +113,6 @@ export function appendStoragePresets(
 ): ItemContainerSlot[] {
 	const flatSlots = flattenStoragePresetSlots(presets);
 
-	// 找出所有空槽的索引
 	const emptyIndices: number[] = [];
 	for (let i = 0; i < target.length; i++) {
 		if (target[i].static_id === 'None') {
@@ -103,10 +120,9 @@ export function appendStoragePresets(
 		}
 	}
 
-	// 深拷贝目标
-	const result = target.map((slot) => ({ ...slot }));
+	const result = cloneSlots(target);
+	if (flatSlots.length === 0) return result;
 
-	// 按顺序填入空槽
 	let flatIdx = 0;
 	for (const emptyIdx of emptyIndices) {
 		if (flatIdx >= flatSlots.length) break;
