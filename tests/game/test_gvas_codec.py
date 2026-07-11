@@ -121,19 +121,20 @@ class TestSkipEncodePurity:
 
 
 class TestMapObjectEofRecovery:
-    """Tests for Palworld 1.0 unknown trailing bytes in map object/module data.
+    """Palworld 1.0 map object/module 数据中未知尾部字节的测试。
 
-    When Palworld 1.0 adds fields, the palworld-save-tools decoders raise
-    ``Exception("Warning: EOF not reached ...")``.  The gvas_codec wrapper must
-    intercept these and return the raw bytes unchanged so round-trip is safe.
+    当 Palworld 1.0 新增字段时，palworld-save-tools 解码器会抛出
+    ``Exception("Warning: EOF not reached ...")``。
+    gvas_codec 包装器必须拦截此异常并原样返回原始字节，以确保回写安全。
     """
 
-    # shrine_lantern -> PalMapObjectLampModel: 2 GUIDs (32) + 4 trailing = 36
+    # 用户真实 shrine_lantern 错误中提取的 44 字节 hex：
+    # 前 32 字节为两个 GUID（instance_id + model_instance_id），
+    # 后 12 字节为尾部数据。解码器期望 36 字节，多出 8 字节触发 EOF 异常。
     SHRINE_LANTERN_HEX = (
-        "00" * 16   # instance_id GUID (16 bytes)
-        + "11" * 16  # model_instance_id GUID (16 bytes)
-        + "22" * 4   # trailing_bytes (4 bytes)
-        + "ff"       # extra byte that triggers EOF mismatch
+        "0614917f7d395045b9e58ae99a17a60b"
+        "f686220f85f8cd4d9bcaca3f54f7e31f"
+        "000000000000000000000000"
     )
 
     @staticmethod
@@ -142,7 +143,7 @@ class TestMapObjectEofRecovery:
         return FArchiveReader(b"\x00")
 
     def test_extra_trailing_bytes_preserved(self):
-        """EOF-not-reached in map object returns raw bytes unchanged."""
+        """map object 中 EOF 未到达时原样返回原始 44 字节。"""
         from palworld_save_tools.rawdata import map_concrete_model
 
         raw = list(bytes.fromhex(self.SHRINE_LANTERN_HEX))
@@ -150,10 +151,11 @@ class TestMapObjectEofRecovery:
             self._parent_reader(), raw, "shrine_lantern"
         )
 
+        assert len(raw) == 44
         assert result == {"values": bytes(raw)}
 
     def test_unknown_module_bytes_preserved(self):
-        """EOF-not-reached in module decoder returns raw bytes unchanged."""
+        """module 解码器中 EOF 未到达时原样返回原始字节。"""
         from palworld_save_tools.rawdata import map_concrete_model_module
 
         raw = list(bytes([0xBB] * 12))
@@ -166,28 +168,28 @@ class TestMapObjectEofRecovery:
         assert result == {"values": bytes(raw)}
 
     def test_non_eof_exception_propagates(self):
-        """Exceptions NOT starting with 'Warning: EOF not reached' are re-raised."""
-        from palworld_save_tools.rawdata import map_concrete_model
+        """不以 'Warning: EOF not reached' 开头的异常会被重新抛出。"""
+        from palworld_save_pal.game.gvas_codec import _make_eof_safe_decode
+
+        _sentinel = Exception("SomeOtherError: something went wrong")
+
+        def _fake_decoder(_reader, m_bytes, _entity_id):
+            raise _sentinel
+
+        wrapped = _make_eof_safe_decode(_fake_decoder, "test")
 
         with pytest.raises(Exception) as exc_info:
-            # coerce_bytes(int) raises TypeError — must not be swallowed
-            map_concrete_model.decode_bytes(
-                self._parent_reader(), 42, "shrine_lantern"
-            )
+            wrapped(self._parent_reader(), b"\x00", "test_entity")
 
-        assert not str(exc_info.value).startswith("Warning: EOF not reached")
+        # 同一个异常对象传播，未被吞没或替换
+        assert exc_info.value is _sentinel
 
     def test_successful_decode_unaffected(self):
-        """Normal decode without EOF mismatch returns structured data."""
-        import uuid
+        """无 EOF 不匹配的正常解码返回结构化数据。"""
         from palworld_save_tools.rawdata import map_concrete_model
 
-        # Exactly 36 bytes: 2 UUIDs (16+16) + 4 trailing — no extra bytes
-        valid = (
-            uuid.uuid4().bytes
-            + uuid.uuid4().bytes
-            + b"\x00\x00\x00\x00"
-        )
+        # 恰好 36 字节：两个 GUID（16+16）+ 4 字节尾部 — 无多余字节
+        valid = b"\x01" * 16 + b"\x02" * 16 + b"\x00" * 4
         result = map_concrete_model.decode_bytes(
             self._parent_reader(), list(valid), "shrine_lantern"
         )

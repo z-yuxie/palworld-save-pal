@@ -1,6 +1,6 @@
 import base64
-import re
 import logging
+import re
 from functools import wraps
 
 
@@ -8,12 +8,11 @@ _logger = logging.getLogger(__name__)
 
 
 def _make_eof_safe_decode(fn, label):
-    """Wrap a ``decode_bytes`` callable to return raw bytes on EOF mismatch.
+    """包装 ``decode_bytes`` 可调用对象，在 EOF 不匹配时返回原始字节。
 
-    Palworld 1.0 adds fields that the save-tools decoders don't know about,
-    causing ``Exception("Warning: EOF not reached ...")``.  This wrapper
-    intercepts those and preserves the original bytes so round-trip re-encoding
-    is bit-identical.
+    Palworld 1.0 新增了 save-tools 解码器不认识的字段，
+    导致 ``Exception("Warning: EOF not reached ...")``。
+    此包装器拦截该异常并保留原始字节，确保回写时逐位一致。
     """
 
     @wraps(fn)
@@ -23,8 +22,7 @@ def _make_eof_safe_decode(fn, label):
         except Exception as exc:
             if str(exc).startswith("Warning: EOF not reached"):
                 _logger.debug(
-                    "Preserving raw bytes for %s %r (EOF not reached)",
-                    label,
+                    "保留 %s %r 的原始字节（EOF 未到达）",
                     entity_id,
                 )
                 return {"values": _ensure_bytes(m_bytes)}
@@ -34,7 +32,7 @@ def _make_eof_safe_decode(fn, label):
 
 
 def _install_eof_safe_wrappers():
-    """Idempotently install EOF-safe wrappers on both map concrete model decoders."""
+    """幂等地在两个 map concrete model 解码器上安装 EOF 安全包装器。"""
     import palworld_save_tools.rawdata.map_concrete_model as _mcm
     import palworld_save_tools.rawdata.map_concrete_model_module as _mcmm
 
@@ -45,9 +43,6 @@ def _install_eof_safe_wrappers():
     if not getattr(_mcmm.decode_bytes, "_eof_safe", False):
         _mcmm.decode_bytes = _make_eof_safe_decode(_mcmm.decode_bytes, "module")
         _mcmm.decode_bytes._eof_safe = True  # type: ignore[attr-defined]
-
-
-_install_eof_safe_wrappers()
 
 
 from enum import Enum
@@ -108,6 +103,8 @@ def _ensure_bytes(value):
         return base64.b64decode(value, validate=True)
     return bytes(value)
 
+
+_install_eof_safe_wrappers()
 
 def skip_encode(writer: FArchiveWriter, property_type: str, properties: dict) -> int:
     if "skip_type" not in properties:
