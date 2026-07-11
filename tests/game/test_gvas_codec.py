@@ -2,7 +2,7 @@ import base64
 import copy
 
 import pytest
-from palworld_save_tools.archive import FArchiveWriter
+from palworld_save_tools.archive import FArchiveReader, FArchiveWriter
 
 from palworld_save_pal.game.gvas_codec import (
     CUSTOM_PROPERTIES,
@@ -225,49 +225,31 @@ class TestMapObjectEofRecovery:
         assert read_back["values"] == bytes(raw)
 
 
-class TestGroupEofRecovery:
-    """Palworld 1.0 Guild GroupSaveData 中未知尾部字节的测试。
+class TestGroupLocalCodec:
+    """本地 Group codec 集成测试。
 
-    当 Palworld 1.0 在 Guild 数据中新增字段时，palworld-save-tools
-    ``group.decode_bytes`` 解码器会抛出
-    ``Exception("Warning: EOF not reached")``。
-    gvas_codec 包装器必须拦截此异常并原样返回原始字节，以确保回写安全。
+    验证 :mod:`palworld_save_pal.game.group_codec` 已正确注册到
+    ``CUSTOM_PROPERTIES`` 并替代上游 ``rawdata.group`` 的 EOF 回退包装，
+    实现结构化 Guild 解码而非整段回退为原始字节。
     """
 
-    # 最小合法 Guild payload：93 字节零值
-    _MINIMAL_GUILD_BYTES = b"\x00" * 93
+    def test_local_codec_registered(self):
+        """GroupSaveDataMap 指向本地 group_codec。"""
+        from palworld_save_pal.game.gvas_codec import CUSTOM_PROPERTIES as cp
+        from palworld_save_pal.game.group_codec import decode, encode
 
-    @staticmethod
-    def _parent_reader():
-        from palworld_save_tools.archive import FArchiveReader
-        return FArchiveReader(b"\x00")
+        handler = cp[".worldSaveData.GroupSaveDataMap"]
+        assert handler == (decode, encode)
 
-    def test_extra_trailing_bytes_preserved(self):
-        """Guild 中 EOF 未到达时原样返回原始字节。"""
-        from palworld_save_tools.rawdata import group
+    def test_map_object_wrapper_still_installed(self):
+        """map_concrete_model EOF 包装器保持安装。"""
+        from palworld_save_tools.rawdata import map_concrete_model as mcm
+        assert getattr(mcm.decode_bytes, "_palworld_save_pal_eof_safe_v1", False)
 
-        # 在最小合法 payload 后追加 5 个非零尾字节触发 EOF 异常
-        raw = list(self._MINIMAL_GUILD_BYTES + b"\xFF" * 5)
-        result = group.decode_bytes(
-            self._parent_reader(), raw, "EPalGroupType::Guild"
-        )
-
-        assert len(raw) == 98  # 93 + 5 trailing
-        assert result == {"values": bytes(raw)}
-
-    def test_valid_guild_decoded(self):
-        """合法 Guild payload 返回结构化数据。"""
-        from palworld_save_tools.rawdata import group
-
-        raw = list(self._MINIMAL_GUILD_BYTES)
-        result = group.decode_bytes(
-            self._parent_reader(), raw, "EPalGroupType::Guild"
-        )
-
-        assert "group_id" in result
-        assert "group_type" in result
-        assert result["group_type"] == "EPalGroupType::Guild"
-        assert "players" in result
+    def test_module_wrapper_still_installed(self):
+        """map_concrete_model_module EOF 包装器保持安装。"""
+        from palworld_save_tools.rawdata import map_concrete_model_module as mcmm
+        assert getattr(mcmm.decode_bytes, "_palworld_save_pal_eof_safe_v1", False)
 
     def test_non_eof_exception_propagates(self):
         """不以 'Warning: EOF not reached' 开头的异常会被重新抛出。"""
@@ -278,22 +260,22 @@ class TestGroupEofRecovery:
         def _fake_decoder(_reader, m_bytes, _entity_id):
             raise _sentinel
 
-        wrapped = _make_eof_safe_decode(_fake_decoder, "group")
+        wrapped = _make_eof_safe_decode(_fake_decoder, "test")
 
         with pytest.raises(Exception) as exc_info:
-            wrapped(self._parent_reader(), b"\x00", "test_entity")
+            wrapped(FArchiveReader(b"\x00"), b"\x00", "test_entity")
 
         assert exc_info.value is _sentinel
 
     def test_wrapper_idempotent(self):
-        """包装器幂等：重复安装不改变 group.decode_bytes 引用。"""
+        """包装器幂等：重复安装不改变 map_concrete_model.decode_bytes 引用。"""
         from palworld_save_pal.game.gvas_codec import _install_eof_safe_wrappers
-        from palworld_save_tools.rawdata import group as group_module
+        from palworld_save_tools.rawdata import map_concrete_model as mcm
 
         _install_eof_safe_wrappers()
-        fn_first = group_module.decode_bytes
+        fn_first = mcm.decode_bytes
 
         _install_eof_safe_wrappers()
-        fn_second = group_module.decode_bytes
+        fn_second = mcm.decode_bytes
 
         assert fn_first is fn_second

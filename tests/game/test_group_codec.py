@@ -20,7 +20,7 @@ from palworld_save_pal.game.group_codec import (
 # ── 二进制构造辅助 ───────────────────────────────────────────
 
 def _pack_guid(hex_str: str) -> bytes:
-    """将十六进制 GUID 字符串打包为大端 16 字节。"""
+    """将十六进制 GUID 字符串打包为 16 字节。"""
     return bytes.fromhex(hex_str)
 
 
@@ -52,17 +52,28 @@ V1_MARKER = b"\x02\x00\x00\x00\x02\x03\x00\x00\x00\x00"
 
 ZERO_GUID = "00000000000000000000000000000000"
 
+# 有效测试 GUID（32 个十六进制字符）
+ADMIN_UID = "ad" * 16  # "adadadad..."
+PLAYER1_UID = "b1" * 16
+PLAYER2_UID = "b2" * 16
+OLD_GUILD_ID = "22" * 16
+ORG_GUILD_ID = "33" * 16
+INDIE_GUILD_ID = "44" * 16
+INDIE_PLAYER_UID = "cc" * 16
+RAWTAIL_GUILD_ID = "ff" * 16
+FAIL_GUILD_ID = "fa" * 16  # for raw tail fallback test
 
-# ── Palworld 1.0 Guild 二进制构造 ────────────────────────────
+
+# ── Guild 二进制构造 ─────────────────────────────────────────
 
 def _build_v1_guild_bytes(
     *,
-    group_id: str = "11111111111111111111111111111111",
+    group_id: str = "11" * 16,
     group_name: str = "TestGuild",
     org_type: int = 0,
     base_camp_level: int = 1,
     guild_name: str = "TestGuildName",
-    admin_uid: str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    admin_uid: str = ADMIN_UID,
     players: list[dict] | None = None,
     trailing_bytes: bytes = b"",
 ) -> bytes:
@@ -70,7 +81,7 @@ def _build_v1_guild_bytes(
     if players is None:
         players = [
             {
-                "player_uid": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                "player_uid": PLAYER1_UID,
                 "player_name": "PlayerOne",
                 "last_online": 1234567890,
                 "u8_flag": 1,
@@ -81,7 +92,7 @@ def _build_v1_guild_bytes(
     # common header
     buf += _pack_guid(group_id)
     buf += _pack_fstring(group_name)
-    buf += _pack_tarray_instance_ids([])  # empty individual_character_handle_ids
+    buf += _pack_tarray_instance_ids([])
     buf += struct.pack("<B", org_type)
 
     # guild fields
@@ -89,9 +100,9 @@ def _build_v1_guild_bytes(
     buf += _pack_tarray_uuid([])  # base_ids
     buf += struct.pack("<i", 0)  # unknown_1
     buf += struct.pack("<i", base_camp_level)
-    buf += _pack_tarray_uuid([])  # map_object_instance_ids_base_camp_points
+    buf += _pack_tarray_uuid([])
     buf += _pack_fstring(guild_name)
-    buf += _pack_guid(ZERO_GUID)  # last_guild_name_modifier_player_uid
+    buf += _pack_guid(ZERO_GUID)
     buf += b"\x00" * 4  # unknown_2
 
     # Palworld 1.0 marker
@@ -106,20 +117,18 @@ def _build_v1_guild_bytes(
         buf += _pack_fstring(p["player_name"])
         buf += struct.pack("<B", p["u8_flag"])
 
-    # trailing bytes
     buf += trailing_bytes
-
     return bytes(buf)
 
 
 def _build_old_guild_bytes(
     *,
-    group_id: str = "22222222222222222222222222222222",
+    group_id: str = OLD_GUILD_ID,
     group_name: str = "OldGuild",
     org_type: int = 0,
     base_camp_level: int = 2,
     guild_name: str = "OldGuildName",
-    trailing_bytes: bytes = b"\xFF\xEE",
+    trailing_bytes: bytes = b"\xff\xee",
 ) -> bytes:
     """构造旧格式 Guild 二进制（无 Palworld 1.0 marker/player 数据）。"""
     buf = bytearray()
@@ -141,19 +150,18 @@ def _build_old_guild_bytes(
 
 def _build_org_bytes(
     *,
-    group_id: str = "33333333333333333333333333333333",
+    group_id: str = ORG_GUILD_ID,
     group_name: str = "TestOrg",
     org_type: int = 2,
-    trailing_bytes: bytes = b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C",
+    trailing_bytes: bytes = b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c",
     unknown_bytes: bytes = b"",
 ) -> bytes:
-    """构造 Organization 二进制 payload。"""
     buf = bytearray()
     buf += _pack_guid(group_id)
     buf += _pack_fstring(group_name)
     buf += _pack_tarray_instance_ids([])
     buf += struct.pack("<B", org_type)
-    buf += trailing_bytes  # exactly 12 bytes
+    buf += trailing_bytes
     if unknown_bytes:
         buf += unknown_bytes
     return bytes(buf)
@@ -161,30 +169,29 @@ def _build_org_bytes(
 
 def _build_independent_guild_bytes(
     *,
-    group_id: str = "44444444444444444444444444444444",
+    group_id: str = INDIE_GUILD_ID,
     group_name: str = "IndependentGuild",
     org_type: int = 1,
     base_camp_level: int = 3,
     guild_name: str = "IndieGuild",
-    player_uid: str = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+    player_uid: str = INDIE_PLAYER_UID,
     guild_name_2: str = "IndieGuild2",
     player_name: str = "IndiePlayer",
     last_online: int = 9876543210,
     unknown_bytes: bytes = b"",
 ) -> bytes:
-    """构造 IndependentGuild 二进制 payload。"""
     buf = bytearray()
     buf += _pack_guid(group_id)
     buf += _pack_fstring(group_name)
     buf += _pack_tarray_instance_ids([])
     buf += struct.pack("<B", org_type)
     buf += struct.pack("<i", base_camp_level)
-    buf += _pack_tarray_uuid([])  # map_object_instance_ids_base_camp_points
+    buf += _pack_tarray_uuid([])
     buf += _pack_fstring(guild_name)
     buf += _pack_guid(player_uid)
     buf += _pack_fstring(guild_name_2)
-    buf += struct.pack("<q", last_online)  # player_info.last_online_real_time
-    buf += _pack_fstring(player_name)  # player_info.player_name
+    buf += struct.pack("<q", last_online)
+    buf += _pack_fstring(player_name)
     if unknown_bytes:
         buf += unknown_bytes
     return bytes(buf)
@@ -198,21 +205,21 @@ class TestPalworldV1GuildDecode:
 
     @staticmethod
     def _make_reader(raw: bytes):
-        return FArchiveReader(b"\x00")  # dummy parent
+        return FArchiveReader(b"\x00")
 
     def test_v1_guild_fields_readable(self):
         """Palworld 1.0 Guild 全部字段可读取。"""
         raw = _build_v1_guild_bytes(
-            admin_uid="ADMINADMINADMINADMINADMINADMINAD",
+            admin_uid=ADMIN_UID,
             players=[
                 {
-                    "player_uid": "P1P1P1P1P1P1P1P1P1P1P1P1P1P1P1P1",
+                    "player_uid": PLAYER1_UID,
                     "player_name": "Alice",
                     "last_online": 1000000,
                     "u8_flag": 42,
                 },
                 {
-                    "player_uid": "P2P2P2P2P2P2P2P2P2P2P2P2P2P2P2P2",
+                    "player_uid": PLAYER2_UID,
                     "player_name": "Bob",
                     "last_online": 2000000,
                     "u8_flag": 7,
@@ -240,10 +247,10 @@ class TestPalworldV1GuildDecode:
     def test_v1_guild_roundtrip(self):
         """Palworld 1.0 Guild 解码后编码逐字节一致。"""
         raw = _build_v1_guild_bytes(
-            admin_uid="ADMINADMINADMINADMINADMINADMINAD",
+            admin_uid=ADMIN_UID,
             players=[
                 {
-                    "player_uid": "P1P1P1P1P1P1P1P1P1P1P1P1P1P1P1P1",
+                    "player_uid": PLAYER1_UID,
                     "player_name": "Alice",
                     "last_online": 1000000,
                     "u8_flag": 42,
@@ -268,7 +275,7 @@ class TestOldGuildDecode:
     def test_old_guild_fields_readable(self):
         """旧格式 Guild 字段可读取，无 v1 marker。"""
         raw = _build_old_guild_bytes(
-            group_id="OLDGOLDGOLDGOLDGOLDGOLDGOLDGOLD",
+            group_id=OLD_GUILD_ID,
             group_name="Vintage",
             base_camp_level=5,
             guild_name="VintageGuild",
@@ -286,7 +293,7 @@ class TestOldGuildDecode:
 
     def test_old_guild_roundtrip(self):
         """旧格式 Guild 解码后编码逐字节一致。"""
-        raw = _build_old_guild_bytes(trailing_bytes=b"\xAB\xCD")
+        raw = _build_old_guild_bytes(trailing_bytes=b"\xab\xcd")
         result = decode_bytes(
             self._make_reader(raw), list(raw), "EPalGroupType::Guild"
         )
@@ -303,22 +310,20 @@ class TestRawTailFallback:
 
     def test_unparseable_tail_stored_as_raw(self):
         """无法解析的尾部数据保存到 _raw_tail 且往返一致。"""
-        # 构造包含垃圾数据的 Guild（在 unknown_2 之后直接写入非结构化数据）
         buf = bytearray()
-        buf += _pack_guid("FFAILFAILFAILFAILFAILFAILFAILFAIL")
+        buf += _pack_guid(FAIL_GUILD_ID)
         buf += _pack_fstring("BrokenGuild")
         buf += _pack_tarray_instance_ids([])
         buf += struct.pack("<B", 0)  # org_type
         buf += b"\x00" * 4  # leading_bytes
-        buf += _pack_tarray_uuid([])  # base_ids
+        buf += _pack_tarray_uuid([])
         buf += struct.pack("<i", 0)  # unknown_1
         buf += struct.pack("<i", 99)  # base_camp_level
         buf += _pack_tarray_uuid([])
         buf += _pack_fstring("BrokenName")
         buf += _pack_guid(ZERO_GUID)
         buf += b"\x00" * 4  # unknown_2
-        # 这里是伪造的尾部 — 不是一个有效的 GUID 开头
-        buf += b"\xFF\xFE\xFD\xFC\xFB"
+        buf += b"\xff\xfe\xfd\xfc\xfb"  # garbage tail
         raw = bytes(buf)
 
         result = decode_bytes(
@@ -326,13 +331,13 @@ class TestRawTailFallback:
         )
 
         assert "_raw_tail" in result
-        assert result["_raw_tail"] == b"\xFF\xFE\xFD\xFC\xFB"
+        assert result["_raw_tail"] == b"\xff\xfe\xfd\xfc\xfb"
         assert result["base_camp_level"] == 99
 
     def test_raw_tail_roundtrip(self):
         """_raw_tail 字段在编码时逐字节写回。"""
         buf = bytearray()
-        buf += _pack_guid("RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR")
+        buf += _pack_guid(RAWTAIL_GUILD_ID)
         buf += _pack_fstring("RawTailGuild")
         buf += _pack_tarray_instance_ids([])
         buf += struct.pack("<B", 0)
@@ -344,7 +349,7 @@ class TestRawTailFallback:
         buf += _pack_fstring("RT")
         buf += _pack_guid(ZERO_GUID)
         buf += b"\x00" * 4
-        buf += b"\xDE\xAD\xBE\xEF"
+        buf += b"\xde\xad\xbe\xef"  # garbage
         raw = bytes(buf)
 
         result = decode_bytes(
@@ -364,10 +369,7 @@ class TestOrganizationDecode:
 
     def test_org_fields_readable(self):
         """Organization 字段及尾部字节可读。"""
-        raw = _build_org_bytes(
-            trailing_bytes=b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C",
-            unknown_bytes=b"\xEE\xFF",
-        )
+        raw = _build_org_bytes(unknown_bytes=b"\xee\xff")
         result = decode_bytes(
             self._make_reader(raw), list(raw), "EPalGroupType::Organization"
         )
@@ -380,10 +382,7 @@ class TestOrganizationDecode:
 
     def test_org_roundtrip(self):
         """Organization 解码后编码逐字节一致。"""
-        raw = _build_org_bytes(
-            trailing_bytes=b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C",
-            unknown_bytes=b"\xEE\xFF",
-        )
+        raw = _build_org_bytes(unknown_bytes=b"\xee\xff")
         result = decode_bytes(
             self._make_reader(raw), list(raw), "EPalGroupType::Organization"
         )
@@ -400,9 +399,7 @@ class TestIndependentGuildDecode:
 
     def test_independent_guild_fields_readable(self):
         """IndependentGuild 全部字段可读。"""
-        raw = _build_independent_guild_bytes(
-            unknown_bytes=b"\x11\x22",
-        )
+        raw = _build_independent_guild_bytes(unknown_bytes=b"\x11\x22")
         result = decode_bytes(
             self._make_reader(raw),
             list(raw),
@@ -420,9 +417,7 @@ class TestIndependentGuildDecode:
 
     def test_independent_guild_roundtrip(self):
         """IndependentGuild 解码后编码逐字节一致。"""
-        raw = _build_independent_guild_bytes(
-            unknown_bytes=b"\x11\x22",
-        )
+        raw = _build_independent_guild_bytes(unknown_bytes=b"\x11\x22")
         result = decode_bytes(
             self._make_reader(raw),
             list(raw),
