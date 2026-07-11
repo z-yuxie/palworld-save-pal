@@ -118,3 +118,80 @@ class TestSkipEncodePurity:
         properties = _skipped_array_property()
         written = skip_encode(FArchiveWriter(), "ArrayProperty", properties)
         assert written == 4
+
+
+class TestMapObjectEofRecovery:
+    """Tests for Palworld 1.0 unknown trailing bytes in map object/module data.
+
+    When Palworld 1.0 adds fields, the palworld-save-tools decoders raise
+    ``Exception("Warning: EOF not reached ...")``.  The gvas_codec wrapper must
+    intercept these and return the raw bytes unchanged so round-trip is safe.
+    """
+
+    # shrine_lantern -> PalMapObjectLampModel: 2 GUIDs (32) + 4 trailing = 36
+    SHRINE_LANTERN_HEX = (
+        "00" * 16   # instance_id GUID (16 bytes)
+        + "11" * 16  # model_instance_id GUID (16 bytes)
+        + "22" * 4   # trailing_bytes (4 bytes)
+        + "ff"       # extra byte that triggers EOF mismatch
+    )
+
+    @staticmethod
+    def _parent_reader():
+        from palworld_save_tools.archive import FArchiveReader
+        return FArchiveReader(b"\x00")
+
+    def test_extra_trailing_bytes_preserved(self):
+        """EOF-not-reached in map object returns raw bytes unchanged."""
+        from palworld_save_tools.rawdata import map_concrete_model
+
+        raw = list(bytes.fromhex(self.SHRINE_LANTERN_HEX))
+        result = map_concrete_model.decode_bytes(
+            self._parent_reader(), raw, "shrine_lantern"
+        )
+
+        assert result == {"values": bytes(raw)}
+
+    def test_unknown_module_bytes_preserved(self):
+        """EOF-not-reached in module decoder returns raw bytes unchanged."""
+        from palworld_save_tools.rawdata import map_concrete_model_module
+
+        raw = list(bytes([0xBB] * 12))
+        result = map_concrete_model_module.decode_bytes(
+            self._parent_reader(),
+            raw,
+            "EPalMapObjectConcreteModelModuleType::OperationalLoad",
+        )
+
+        assert result == {"values": bytes(raw)}
+
+    def test_non_eof_exception_propagates(self):
+        """Exceptions NOT starting with 'Warning: EOF not reached' are re-raised."""
+        from palworld_save_tools.rawdata import map_concrete_model
+
+        with pytest.raises(Exception) as exc_info:
+            # coerce_bytes(int) raises TypeError — must not be swallowed
+            map_concrete_model.decode_bytes(
+                self._parent_reader(), 42, "shrine_lantern"
+            )
+
+        assert not str(exc_info.value).startswith("Warning: EOF not reached")
+
+    def test_successful_decode_unaffected(self):
+        """Normal decode without EOF mismatch returns structured data."""
+        import uuid
+        from palworld_save_tools.rawdata import map_concrete_model
+
+        # Exactly 36 bytes: 2 UUIDs (16+16) + 4 trailing — no extra bytes
+        valid = (
+            uuid.uuid4().bytes
+            + uuid.uuid4().bytes
+            + b"\x00\x00\x00\x00"
+        )
+        result = map_concrete_model.decode_bytes(
+            self._parent_reader(), list(valid), "shrine_lantern"
+        )
+
+        assert "instance_id" in result
+        assert "model_instance_id" in result
+        assert result.get("concrete_model_type") == "PalMapObjectLampModel"
