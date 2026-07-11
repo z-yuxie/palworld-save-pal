@@ -64,6 +64,25 @@ describe('flattenStoragePresetSlots', () => {
 		expect(flattenStoragePresetSlots([])).toEqual([]);
 	});
 
+	it('returned slots are independent copies — mutation does not affect preset', () => {
+		const presets: PresetProfile[] = [
+			makePreset('DynPreset', 'box', 'storage', [s(0, 'Weapon', 1, { ...dyn })])
+		];
+
+		const result = flattenStoragePresetSlots(presets);
+
+		// 修改结果
+		result[0].static_id = 'Mutated';
+		result[0].count = 999;
+		result[0].dynamic_item!.durability = 0;
+
+		// 原预设不变
+		const orig = presets[0].storage_container!.slots[0];
+		expect(orig.static_id).toBe('Weapon');
+		expect(orig.count).toBe(1);
+		expect(orig.dynamic_item!.durability).toBe(100);
+	});
+
 	it('skips preset without storage_container', () => {
 		const presets: PresetProfile[] = [
 			makePreset('NoStorage', '', 'inventory', []),
@@ -185,6 +204,26 @@ describe('applyStoragePresets', () => {
 		const result = applyStoragePresets(target, presets);
 		expect(result.map((r) => r.static_id)).toEqual(['Alpha', 'Beta', 'Gamma']);
 	});
+
+	it('empty presets returns independent equal copy (not cleared)', () => {
+		const target: ItemContainerSlot[] = [
+			s(0, 'KeepMe', 50, { ...dyn }),
+			s(1, 'KeepToo', 10)
+		];
+		const snapshot = JSON.stringify(target);
+
+		const result = applyStoragePresets(target, []);
+
+		expect(result).toHaveLength(2);
+		expect(result[0].static_id).toBe('KeepMe');
+		expect(result[0].count).toBe(50);
+		expect(result[0].dynamic_item).toBeDefined();
+		expect(result[1].static_id).toBe('KeepToo');
+		// 独立副本 — 修改结果不影响原 target
+		result[0].static_id = 'changed';
+		result[0].dynamic_item!.durability = 0;
+		expect(JSON.stringify(target)).toBe(snapshot);
+	});
 });
 
 // ── TEST 9: appendStoragePresets ─────────────────────────────────────
@@ -209,6 +248,45 @@ describe('appendStoragePresets', () => {
 		expect(result[1].static_id).toBe('Item1');
 		expect(result[2].static_id).toBe('Item2');
 		// Item3 overflowed — 只有2个空槽
+	});
+
+	it('empty presets returns independent equal copy', () => {
+		const target: ItemContainerSlot[] = [
+			s(0, 'KeepMe', 50, { ...dyn }),
+			none(1)
+		];
+		const snapshot = JSON.stringify(target);
+
+		const result = appendStoragePresets(target, []);
+
+		expect(result).toHaveLength(2);
+		expect(result[0].static_id).toBe('KeepMe');
+		expect(result[0].dynamic_item).toBeDefined();
+		expect(result[0].dynamic_item!.local_id).toBe('original-uuid-1234');
+		expect(result[1].static_id).toBe('None');
+		// 独立副本
+		result[0].dynamic_item!.durability = 0;
+		expect(JSON.stringify(target)).toBe(snapshot);
+	});
+
+	it('preserved slots are independent — mutation does not affect target', () => {
+		const target: ItemContainerSlot[] = [
+			s(0, 'Occupied', 50, { ...dyn }),
+			none(1)
+		];
+		const presets: PresetProfile[] = [
+			makePreset('P', 'box', 'storage', [s(0, 'Item1')])
+		];
+
+		const result = appendStoragePresets(target, presets);
+
+		// 修改保留槽位的 dynamic_item
+		result[0].dynamic_item!.durability = 0;
+		result[0].static_id = 'changed';
+
+		// target 不变
+		expect(target[0].static_id).toBe('Occupied');
+		expect(target[0].dynamic_item!.durability).toBe(100);
 	});
 });
 
