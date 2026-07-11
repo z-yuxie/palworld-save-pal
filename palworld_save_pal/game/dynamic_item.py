@@ -229,6 +229,14 @@ class DynamicItem(BaseModel):
     def save_data(self) -> Dict[str, Any]:
         return self._dynamic_item_save_data
 
+    @staticmethod
+    def _normalize_bytes(raw_data: Dict[str, Any], key: str, target_len: int) -> None:
+        """确保 raw_data[key] 存在且长度为 target_len；长度不符则重置为零字节列表。
+        已有且长度正确时原样保留（保真原始存档数据）。"""
+        existing = raw_data.get(key)
+        if existing is None or len(existing) != target_len:
+            raw_data[key] = [0] * target_len
+
     def update_from(self, other: Dict[str, Any]) -> None:
         logger.debug("Updating DynamicItem %s, %s", self.local_id, self.static_id)
         self.type = other["type"]
@@ -241,7 +249,11 @@ class DynamicItem(BaseModel):
                     "unknown_id",
                     "remaining_bullets",
                     "passive_skill_list",
+                    "trailer",
                 )
+                # Issue #278: 归一化 leading_bytes=4 / trailing_bytes=4；保真已有正确长度
+                self._normalize_bytes(self._raw_data, "leading_bytes", 4)
+                self._normalize_bytes(self._raw_data, "trailing_bytes", 4)
             case DynamicItemType.EGG.value:
                 if "object" not in self._raw_data:
                     self._raw_data["object"] = {}
@@ -264,14 +276,21 @@ class DynamicItem(BaseModel):
                     "durability",
                     "remaining_bullets",
                     "passive_skill_list",
+                    "trailer",
                 )
+                # Issue #278: 归一化 leading_bytes=4 / trailing_bytes=28；保真已有正确长度
+                self._normalize_bytes(self._raw_data, "leading_bytes", 4)
+                self._normalize_bytes(self._raw_data, "trailing_bytes", 28)
                 return
             case DynamicItemType.WEAPON.value:
                 safe_remove_multiple(
-                    self._raw_data, "object", "unknown_bytes", "unknown_id"
+                    self._raw_data, "object", "unknown_bytes", "unknown_id", "trailer"
                 )
                 if "passive_skill_list" not in self._raw_data:
                     self.passive_skill_list = []
+                # Issue #278: 归一化 leading_bytes=4 / trailing_bytes=4；保真已有正确长度
+                self._normalize_bytes(self._raw_data, "leading_bytes", 4)
+                self._normalize_bytes(self._raw_data, "trailing_bytes", 4)
 
         type_converters = {
             "gender": lambda x: PalGender.from_value(x) if x else None,
