@@ -100,6 +100,18 @@ if (-not (Test-Path (Join-Path $UiDir "node_modules"))) {
     }
 }
 
+# ── 前端环境变量 ────────────────────────────────────────────
+# SvelteKit 的 $env/static/public 在构建/开发时需要 ui/.env。
+# 与 build-desktop.*、Dockerfile、release.yml 保持一致。
+$uiEnvPath = Join-Path $UiDir ".env"
+if (-not (Test-Path $uiEnvPath)) {
+    Write-Host "[配置] 创建 ui/.env（PUBLIC_WS_URL=127.0.0.1:5174/ws）..."
+    @"
+PUBLIC_WS_URL=127.0.0.1:5174/ws
+PUBLIC_DESKTOP_MODE=true
+"@ | Set-Content -Path $uiEnvPath -Encoding UTF8
+}
+
 # ── CheckOnly 模式结束 ──────────────────────────────────────
 if ($CheckOnly) {
     Write-Host ""
