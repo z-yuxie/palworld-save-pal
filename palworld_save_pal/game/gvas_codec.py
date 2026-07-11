@@ -1,5 +1,55 @@
 import base64
 import re
+import logging
+from functools import wraps
+
+
+_logger = logging.getLogger(__name__)
+
+
+def _make_eof_safe_decode(fn, label):
+    """Wrap a ``decode_bytes`` callable to return raw bytes on EOF mismatch.
+
+    Palworld 1.0 adds fields that the save-tools decoders don't know about,
+    causing ``Exception("Warning: EOF not reached ...")``.  This wrapper
+    intercepts those and preserves the original bytes so round-trip re-encoding
+    is bit-identical.
+    """
+
+    @wraps(fn)
+    def _wrapper(parent_reader, m_bytes, entity_id):
+        try:
+            return fn(parent_reader, m_bytes, entity_id)
+        except Exception as exc:
+            if str(exc).startswith("Warning: EOF not reached"):
+                _logger.debug(
+                    "Preserving raw bytes for %s %r (EOF not reached)",
+                    label,
+                    entity_id,
+                )
+                return {"values": _ensure_bytes(m_bytes)}
+            raise
+
+    return _wrapper
+
+
+def _install_eof_safe_wrappers():
+    """Idempotently install EOF-safe wrappers on both map concrete model decoders."""
+    import palworld_save_tools.rawdata.map_concrete_model as _mcm
+    import palworld_save_tools.rawdata.map_concrete_model_module as _mcmm
+
+    if not getattr(_mcm.decode_bytes, "_eof_safe", False):
+        _mcm.decode_bytes = _make_eof_safe_decode(_mcm.decode_bytes, "map object")
+        _mcm.decode_bytes._eof_safe = True  # type: ignore[attr-defined]
+
+    if not getattr(_mcmm.decode_bytes, "_eof_safe", False):
+        _mcmm.decode_bytes = _make_eof_safe_decode(_mcmm.decode_bytes, "module")
+        _mcmm.decode_bytes._eof_safe = True  # type: ignore[attr-defined]
+
+
+_install_eof_safe_wrappers()
+
+
 from enum import Enum
 
 from palworld_save_tools.archive import (
