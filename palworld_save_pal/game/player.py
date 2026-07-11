@@ -224,14 +224,18 @@ class Player(BaseModel):
         status_point_list = PalObjects.get_array_property(
             self._save_parameter["GotStatusPointList"]
         )
-        return {
-            PalObjects.StatusNameMap[
-                PalObjects.get_value(item["StatusName"])
-            ]: PalObjects.get_value(item["StatusPoint"])
-            for item in status_point_list
-            if "StatusName" in item
-            and PalObjects.get_value(item["StatusName"]) != "None"
-        }
+        result: Dict[str, int] = {}
+        for item in status_point_list:
+            if "StatusName" not in item:
+                continue
+            jp_name = PalObjects.get_value(item["StatusName"])
+            if jp_name == "None":
+                continue
+            mapped_name = PalObjects.StatusNameMap.get(jp_name)
+            if mapped_name is None:
+                continue
+            result[mapped_name] = PalObjects.get_value(item["StatusPoint"])
+        return result
 
     @status_point_list.setter
     def status_point_list(self, value: Dict[str, int]):
@@ -246,7 +250,9 @@ class Player(BaseModel):
                 status_point_list.remove(item)
         reverse_status_map = {v: k for k, v in PalObjects.StatusNameMap.items()}
         for status_name, point_value in value.items():
-            japanese_name = reverse_status_map[status_name]
+            japanese_name = reverse_status_map.get(status_name)
+            if japanese_name is None:
+                continue
             for item in status_point_list:
                 if PalObjects.get_value(item["StatusName"]) == japanese_name:
                     PalObjects.set_value(item["StatusPoint"], point_value)
@@ -257,12 +263,18 @@ class Player(BaseModel):
         ext_status_point_list = PalObjects.get_array_property(
             self._save_parameter["GotExStatusPointList"]
         )
-        return {
-            PalObjects.ExStatusNameMap[
-                PalObjects.get_value(item["StatusName"])
-            ]: PalObjects.get_value(item["StatusPoint"])
-            for item in ext_status_point_list
-        }
+        result: Dict[str, int] = {}
+        for item in ext_status_point_list:
+            if "StatusName" not in item:
+                continue
+            jp_name = PalObjects.get_value(item["StatusName"])
+            if jp_name == "None":
+                continue
+            mapped_name = PalObjects.ExStatusNameMap.get(jp_name)
+            if mapped_name is None:
+                continue
+            result[mapped_name] = PalObjects.get_value(item["StatusPoint"])
+        return result
 
     @ext_status_point_list.setter
     def ext_status_point_list(self, value: Dict[str, int]):
@@ -271,7 +283,9 @@ class Player(BaseModel):
         )
         reverse_ex_status_map = {v: k for k, v in PalObjects.ExStatusNameMap.items()}
         for status_name, point_value in value.items():
-            japanese_name = reverse_ex_status_map[status_name]
+            japanese_name = reverse_ex_status_map.get(status_name)
+            if japanese_name is None:
+                continue
             for item in ext_status_point_list:
                 if PalObjects.get_value(item["StatusName"]) == japanese_name:
                     PalObjects.set_value(item["StatusPoint"], point_value)

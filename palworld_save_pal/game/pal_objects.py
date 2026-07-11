@@ -381,6 +381,7 @@ class PalObjects:
         "所持重量",  # Carrying Capacity
         "捕獲率",  # Capture Rate
         "作業速度",  # Work Speed
+        "空腹率低減",  # Hunger Rate Reduction (Palworld 1.0)
     ]
 
     StatusNameMap = {
@@ -391,6 +392,7 @@ class PalObjects:
         "捕獲率": "capture_rate",
         "作業速度": "work_speed",
         "移動速度アップ": "move_speed",  # 玩家力量石像升级专属（非帕鲁状态）
+        "空腹率低減": "hunger_rate_reduction",  # Palworld 1.0
     }
 
     ExStatusNames = [

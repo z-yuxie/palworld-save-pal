@@ -137,3 +137,67 @@ class TestMovementSpeedStatus:
         # 验证回写后值仍可读取
         result = player_o.status_point_list
         assert result["move_speed"] == 999
+
+
+
+class TestUnknownStatusNames:
+    """Palworld 1.0 引入新状态名(如 空腹率低減)，getter/setter 应容错未知键不崩溃。"""
+
+    def test_unknown_status_name_does_not_crash_getter(self, player_o):
+        """注入合成未知状态名 未知のステータス，getter 不崩溃且已知键仍可读。"""
+        save_param = player_o._save_parameter
+        status_list = PalObjects.get_array_property(
+            save_param["GotStatusPointList"]
+        )
+        status_list.append(
+            PalObjects.StatusPointStruct("未知のステータス", 999)
+        )
+
+        result = player_o.status_point_list
+        assert "未知のステータス" not in result
+        # 已知键仍可正常读取
+        assert "max_hp" in result
+
+    def test_hunger_rate_reduction_mapped(self, player_o):
+        """注入 空腹率低減 值 300，验证 getter 正确映射为 hunger_rate_reduction。"""
+        save_param = player_o._save_parameter
+        status_list = PalObjects.get_array_property(
+            save_param["GotStatusPointList"]
+        )
+        status_list.append(
+            PalObjects.StatusPointStruct("空腹率低減", 300)
+        )
+
+        result = player_o.status_point_list
+        assert "hunger_rate_reduction" in result
+        assert result["hunger_rate_reduction"] == 300
+
+    def test_unknown_status_preserved_in_setter_roundtrip(self, player_o):
+        """setter 设已知键值不应影响未知条目的存在。"""
+        save_param = player_o._save_parameter
+        status_list = PalObjects.get_array_property(
+            save_param["GotStatusPointList"]
+        )
+        status_list.append(
+            PalObjects.StatusPointStruct("未知のステータス", 777)
+        )
+
+        # 读取后只修改已知键，回写
+        points = player_o.status_point_list
+        assert "未知のステータス" not in points  # 未知键不会进入 dict
+        points["max_hp"] = 9999
+        player_o.status_point_list = points
+
+        # 回写后已知键值正确
+        result = player_o.status_point_list
+        assert result["max_hp"] == 9999
+        # 未知条目仍在 status_point_list 原始数组中
+        raw_list = PalObjects.get_array_property(
+            save_param["GotStatusPointList"]
+        )
+        unknown_items = [
+            item for item in raw_list
+            if PalObjects.get_value(item.get("StatusName", "")) == "未知のステータス"
+        ]
+        assert len(unknown_items) == 1
+        assert PalObjects.get_value(unknown_items[0]["StatusPoint"]) == 777
