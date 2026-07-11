@@ -223,3 +223,77 @@ class TestMapObjectEofRecovery:
 
         # 第四步：断言读回的字节与原始字节完全一致
         assert read_back["values"] == bytes(raw)
+
+
+class TestGroupEofRecovery:
+    """Palworld 1.0 Guild GroupSaveData 中未知尾部字节的测试。
+
+    当 Palworld 1.0 在 Guild 数据中新增字段时，palworld-save-tools
+    ``group.decode_bytes`` 解码器会抛出
+    ``Exception("Warning: EOF not reached")``。
+    gvas_codec 包装器必须拦截此异常并原样返回原始字节，以确保回写安全。
+    """
+
+    # 最小合法 Guild payload：93 字节零值
+    _MINIMAL_GUILD_BYTES = b"\x00" * 93
+
+    @staticmethod
+    def _parent_reader():
+        from palworld_save_tools.archive import FArchiveReader
+        return FArchiveReader(b"\x00")
+
+    def test_extra_trailing_bytes_preserved(self):
+        """Guild 中 EOF 未到达时原样返回原始字节。"""
+        from palworld_save_tools.rawdata import group
+
+        # 在最小合法 payload 后追加 5 个非零尾字节触发 EOF 异常
+        raw = list(self._MINIMAL_GUILD_BYTES + b"\xFF" * 5)
+        result = group.decode_bytes(
+            self._parent_reader(), raw, "EPalGroupType::Guild"
+        )
+
+        assert len(raw) == 98  # 93 + 5 trailing
+        assert result == {"values": bytes(raw)}
+
+    def test_valid_guild_decoded(self):
+        """合法 Guild payload 返回结构化数据。"""
+        from palworld_save_tools.rawdata import group
+
+        raw = list(self._MINIMAL_GUILD_BYTES)
+        result = group.decode_bytes(
+            self._parent_reader(), raw, "EPalGroupType::Guild"
+        )
+
+        assert "group_id" in result
+        assert "group_type" in result
+        assert result["group_type"] == "EPalGroupType::Guild"
+        assert "players" in result
+
+    def test_non_eof_exception_propagates(self):
+        """不以 'Warning: EOF not reached' 开头的异常会被重新抛出。"""
+        from palworld_save_pal.game.gvas_codec import _make_eof_safe_decode
+
+        _sentinel = Exception("SomeOtherError: something went wrong")
+
+        def _fake_decoder(_reader, m_bytes, _entity_id):
+            raise _sentinel
+
+        wrapped = _make_eof_safe_decode(_fake_decoder, "group")
+
+        with pytest.raises(Exception) as exc_info:
+            wrapped(self._parent_reader(), b"\x00", "test_entity")
+
+        assert exc_info.value is _sentinel
+
+    def test_wrapper_idempotent(self):
+        """包装器幂等：重复安装不改变 group.decode_bytes 引用。"""
+        from palworld_save_pal.game.gvas_codec import _install_eof_safe_wrappers
+        from palworld_save_tools.rawdata import group as group_module
+
+        _install_eof_safe_wrappers()
+        fn_first = group_module.decode_bytes
+
+        _install_eof_safe_wrappers()
+        fn_second = group_module.decode_bytes
+
+        assert fn_first is fn_second
