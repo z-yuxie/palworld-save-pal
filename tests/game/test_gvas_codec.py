@@ -197,3 +197,29 @@ class TestMapObjectEofRecovery:
         assert "instance_id" in result
         assert "model_instance_id" in result
         assert result.get("concrete_model_type") == "PalMapObjectLampModel"
+
+    def test_shrine_fallback_roundtrip(self):
+        """Shrine 回退结果通过 array_property 写读往返后字节一致。"""
+        from palworld_save_tools.archive import FArchiveReader, FArchiveWriter
+        from palworld_save_tools.rawdata import map_concrete_model
+
+        raw = list(bytes.fromhex(self.SHRINE_LANTERN_HEX))
+        # 第一步：触发 EOF 回退，拿到 {'values': bytes(raw)}
+        fallback = map_concrete_model.decode_bytes(
+            self._parent_reader(), raw, "shrine_lantern"
+        )
+        assert fallback == {"values": bytes(raw)}
+
+        # 第二步：将回退结果写入 FArchiveWriter
+        writer = FArchiveWriter()
+        writer.array_property("ByteProperty", fallback)
+        written = writer.bytes()
+
+        # 第三步：从写入的字节读回
+        reader = FArchiveReader(written)
+        read_back = reader.array_property(
+            "ByteProperty", len(raw), "shrine_lantern"
+        )
+
+        # 第四步：断言读回的字节与原始字节完全一致
+        assert read_back["values"] == bytes(raw)

@@ -2,6 +2,7 @@ import base64
 import logging
 import re
 from functools import wraps
+from enum import Enum
 
 
 _logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ def _make_eof_safe_decode(fn, label):
             if str(exc).startswith("Warning: EOF not reached"):
                 _logger.debug(
                     "保留 %s %r 的原始字节（EOF 未到达）",
+                    label,
                     entity_id,
                 )
                 return {"values": _ensure_bytes(m_bytes)}
@@ -36,16 +38,15 @@ def _install_eof_safe_wrappers():
     import palworld_save_tools.rawdata.map_concrete_model as _mcm
     import palworld_save_tools.rawdata.map_concrete_model_module as _mcmm
 
-    if not getattr(_mcm.decode_bytes, "_eof_safe", False):
+    if not getattr(_mcm.decode_bytes, "_palworld_save_pal_eof_safe_v1", False):
         _mcm.decode_bytes = _make_eof_safe_decode(_mcm.decode_bytes, "map object")
-        _mcm.decode_bytes._eof_safe = True  # type: ignore[attr-defined]
+        _mcm.decode_bytes._palworld_save_pal_eof_safe_v1 = True  # type: ignore[attr-defined]
 
-    if not getattr(_mcmm.decode_bytes, "_eof_safe", False):
+    if not getattr(_mcmm.decode_bytes, "_palworld_save_pal_eof_safe_v1", False):
         _mcmm.decode_bytes = _make_eof_safe_decode(_mcmm.decode_bytes, "module")
-        _mcmm.decode_bytes._eof_safe = True  # type: ignore[attr-defined]
+        _mcmm.decode_bytes._palworld_save_pal_eof_safe_v1 = True  # type: ignore[attr-defined]
 
 
-from enum import Enum
 
 from palworld_save_tools.archive import (
     FArchiveReader,
