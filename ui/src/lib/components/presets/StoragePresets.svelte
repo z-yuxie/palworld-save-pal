@@ -6,6 +6,7 @@
 	import { getModalState } from '$states';
 	import { EntryState } from '$types';
 	import { deepCopy } from '$utils';
+	import { applyStoragePresets, appendStoragePresets, isStoragePresetCompatible } from '$utils/storage-presets';
 	import {
 		Edit,
 		PaintBucket,
@@ -36,51 +37,14 @@
 
 	let filteredPresets: ExtendedPresetProfile[] = $derived.by(() => {
 		return Object.entries(presetsData.presetProfiles)
-			.filter(
-				([_, preset]) =>
-					preset.type === 'storage' &&
-					preset.storage_container &&
-					(preset.storage_container.slots?.length ?? 0) <= container.slots.length
-			)
+			.filter(([_, preset]) => isStoragePresetCompatible(container, preset))
 			.map(([id, preset]) => ({ ...preset, id }));
 	});
 
 	async function handleApplyPreset() {
 		if (!selectedPresets.length || !container) return;
 
-		// Merge the items from every selected preset into one flat list.
-		const allPresetSlots: ItemContainerSlot[] = [];
-		for (const preset of selectedPresets) {
-			if (preset.storage_container) {
-				for (const ps of preset.storage_container.slots) {
-					if (ps.static_id !== 'None') {
-						allPresetSlots.push(ps as ItemContainerSlot);
-					}
-				}
-			}
-		}
-
-		// Overwrite mode: First empty the container, then fill in
-		// the preset items in sequence.
-		const updatedSlots = container.slots.map((slot: ItemContainerSlot, idx: number) => {
-			if (idx < allPresetSlots.length) {
-				const presetSlot = allPresetSlots[idx];
-				let dynamic_item = undefined;
-				if (presetSlot.dynamic_item) {
-					dynamic_item = deepCopy(presetSlot.dynamic_item);
-					dynamic_item.local_id = '00000000-0000-0000-0000-000000000000';
-				}
-				return {
-					...slot,
-					static_id: presetSlot.static_id,
-					count: presetSlot.count,
-					dynamic_item
-				};
-			}
-			return { ...slot, static_id: 'None', count: 0, dynamic_item: undefined };
-		});
-
-		container.slots = updatedSlots;
+		container.slots = applyStoragePresets(container.slots, selectedPresets);
 		container.state = EntryState.MODIFIED;
 		onUpdate();
 		selectedPresets = [];
@@ -89,42 +53,12 @@
 	async function handleAppendPreset() {
 		if (!selectedPresets.length || !container) return;
 
-		// Merge the items from every selected preset into one flat list.
-		const allPresetSlots: ItemContainerSlot[] = [];
-		for (const preset of selectedPresets) {
-			if (preset.storage_container) {
-				for (const ps of preset.storage_container.slots) {
-					if (ps.static_id !== 'None') {
-						allPresetSlots.push(ps as ItemContainerSlot);
-					}
-				}
-			}
-		}
-
-		// Collect the empty slots (static_id === 'None') in the container.
-		const emptySlots = container.slots.filter((s: ItemContainerSlot) => s.static_id === 'None');
-
-		// Fill the empty slots in order; discard anything beyond capacity.
-		let emptyIdx = 0;
-		for (const presetSlot of allPresetSlots) {
-			if (emptyIdx >= emptySlots.length) break;
-
-			const targetSlot = emptySlots[emptyIdx];
-			targetSlot.static_id = presetSlot.static_id;
-			targetSlot.count = presetSlot.count;
-			if (presetSlot.dynamic_item) {
-				targetSlot.dynamic_item = deepCopy(presetSlot.dynamic_item);
-				targetSlot.dynamic_item.local_id = '00000000-0000-0000-0000-000000000000';
-			} else {
-				targetSlot.dynamic_item = undefined;
-			}
-			emptyIdx++;
-		}
-
+		container.slots = appendStoragePresets(container.slots, selectedPresets);
 		container.state = EntryState.MODIFIED;
 		onUpdate();
 		selectedPresets = [];
 	}
+
 
 	function processSlots(slots: ItemContainerSlot[]) {
 		const newSlots = deepCopy(slots);
