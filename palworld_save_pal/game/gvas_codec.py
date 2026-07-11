@@ -7,6 +7,8 @@ from enum import Enum
 
 _logger = logging.getLogger(__name__)
 
+_eof_logged: set[tuple[str, object]] = set()
+
 
 def _make_eof_safe_decode(fn, label):
     """包装 ``decode_bytes`` 可调用对象，在 EOF 不匹配时返回原始字节。
@@ -22,11 +24,14 @@ def _make_eof_safe_decode(fn, label):
             return fn(parent_reader, m_bytes, entity_id)
         except Exception as exc:
             if str(exc).startswith("Warning: EOF not reached"):
-                _logger.debug(
-                    "保留 %s %r 的原始字节（EOF 未到达）",
-                    label,
-                    entity_id,
-                )
+                key = (label, entity_id)
+                if key not in _eof_logged:
+                    _eof_logged.add(key)
+                    _logger.debug(
+                        "保留 %s %r 的原始字节（EOF 未到达）",
+                        label,
+                        entity_id,
+                    )
                 return {"values": _ensure_bytes(m_bytes)}
             raise
 
