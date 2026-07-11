@@ -278,7 +278,7 @@ def save_modified_gamepass(
     container_path: str,
     save_id: str,
     modified_level_data: bytes,
-    player_sav_data: Dict[uuid.UUID, Dict[str, bytes]],
+    player_sav_data: Dict[uuid.UUID, Dict[str, Optional[bytes]]],
     original_containers: Dict[str, Container],
     world_name: str,
 ) -> None:
@@ -302,7 +302,7 @@ def save_modified_gamepass(
             except ValueError:
                 logger.error("Invalid player UUID in key: %s", key)
                 continue
-            if player_uuid in player_sav_data:
+            if player_uuid in player_sav_data and "sav" in player_sav_data[player_uuid]:
                 player_data = player_sav_data[player_uuid]["sav"]
         elif "_dps" in key:
             try:
@@ -310,7 +310,8 @@ def save_modified_gamepass(
             except ValueError:
                 logger.error("Invalid player UUID in key: %s", key)
                 continue
-            player_data = player_sav_data[player_uuid]["dps"]
+            if player_uuid in player_sav_data and "dps" in player_sav_data[player_uuid]:
+                player_data = player_sav_data[player_uuid]["dps"]
 
         logger.debug("Copying container: %s", original_container.container_name)
         new_container = copy_container(
