@@ -25,6 +25,7 @@
 参考自 ``PalworldSaveTools/src/palsav/palsav/rawdata/group.py``。
 """
 
+import copy
 from typing import Any, Sequence
 
 from palworld_save_tools.archive import (
@@ -175,7 +176,15 @@ def decode_bytes(
     try:
         sub = parent_reader.internal_copy(bytes(post_unk2), debug=False)
         admin_player_uid = sub.guid()
-        player_count = sub.i32()
+        player_count = sub.u32()
+        # 验证 player_count 合理性：每玩家最少 GUID16+i64 8+fstring长度头4=28 字节
+        _min_per_player = 28
+        _remaining = len(post_unk2) - sub.data.tell()
+        if player_count * _min_per_player > _remaining:
+            raise ValueError(
+                f"player_count {player_count} exceeds remaining "
+                f"{_remaining} bytes (min {_min_per_player}/player)"
+            )
         players: list[dict[str, Any]] = []
         for _ in range(player_count):
             puid = sub.guid()
@@ -185,7 +194,7 @@ def decode_bytes(
                 flag = sub.byte()
                 players.append(
                     {
-                        "player_uid": str(puid),
+                        "player_uid": puid,
                         "player_info": {
                             "last_online_real_time": lt,
                             "player_name": nm,
@@ -196,7 +205,7 @@ def decode_bytes(
             else:
                 players.append(
                     {
-                        "player_uid": str(puid),
+                        "player_uid": puid,
                         "player_info": {
                             "last_online_real_time": lt,
                             "player_name": nm,
@@ -238,6 +247,8 @@ def encode(
     """
     if property_type != "MapProperty":
         raise ValueError(f"Expected MapProperty, got {property_type}")
+    # 深拷贝以避免修改调用者的 properties 字典
+    properties = copy.deepcopy(properties)
     del properties["custom_type"]
     group_map: list[dict[str, Any]] = properties["value"]
     for group in group_map:
